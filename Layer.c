@@ -13,8 +13,7 @@ void setNeuronsSize(Layer* layer, unsigned long long int n)
     assert(n > 0 && "YOU CANNOT INPUT 0 NEURONS!");
     if (layer->neurons != NULL) {free(layer->neurons); layer->neurons = NULL;} //Free if not null
     layer->numNeurons = 0;
-    layer->neurons = (Neuron*)malloc(n*sizeof(Neuron)); //Allocate size
-
+    layer->neurons = (Neuron*)calloc(n, sizeof(Neuron)); //Allocate size, zero-initialized
     if (layer->neurons == NULL) {
         printf("Error: Allocation FAILED for neurons.\n");
         layer->numNeurons = 0; 
@@ -66,8 +65,9 @@ void layerForward(Layer* layer)
             layer->next->neurons[j].Z += v * layer->neurons[i].weights[j];
         }
     }
-    for (size_t i = 0;i < layer->next->numNeurons; i++)
+    for (size_t i = 0; i < layer->next->numNeurons; i++)
     {
+        layer->next->neurons[i].Z += layer->next->neurons[i].bias; // bias added here, so Z is the true pre-activation
         activate(&layer->next->neurons[i]);
     }
 }
