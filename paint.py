@@ -1,199 +1,162 @@
 """
-paint_digit.py  —  Draw a digit, export MNIST-ready .bin for your C network.
-
-Requirements:
-    pip install pillow numpy
+paint_digit.py  —  Draw a digit, export MNIST-ready .bin
+Requires:  pip install pygame pillow numpy
 
 Run:
-    python paint_digit.py                  # saves to input_image.bin
-    python paint_digit.py my_digit.bin     # saves to custom path
+    python3 paint_digit.py              # saves to input_image.bin
+    python3 paint_digit.py my4.bin      # custom output path
 """
 
-import sys
-import struct
-import tkinter as tk
-from tkinter import ttk
+import sys, struct
 import numpy as np
-from PIL import Image, ImageFilter, ImageOps
+from PIL import Image, ImageFilter
+import pygame
 
 OUTPUT_PATH = sys.argv[1] if len(sys.argv) > 1 else "input_image.bin"
 
-# ── Canvas size (we draw big, then shrink to 28x28) ──────────────────────────
-CANVAS_PX   = 420          # display canvas in pixels
-GRID        = 28           # MNIST grid
-CELL        = CANVAS_PX // GRID   # pixels per logical "MNIST cell"
-BRUSH_CELLS = 1.5          # brush radius in MNIST cells
+GRID      = 28
+CELL      = 20          # pixels per grid cell  (window = 560px)
+WIN_SIZE  = GRID * CELL
+PANEL_H   = 80
 
-class DigitPainter:
-    def __init__(self, root):
-        self.root = root
-        root.title("Digit Painter → MNIST .bin")
-        root.configure(bg="#0d0d0d")
-        root.resizable(False, False)
+BG        = (13,  13,  13)
+PANEL_BG  = (20,  20,  20)
+BTN_SAVE  = (30, 210,  80)
+BTN_CLEAR = (210,  50,  50)
+BTN_TEXT  = (10,  10,  10)
+LABEL_COL = (100, 100, 100)
+GREEN     = (57, 255,  20)
 
-        # ── grid: 28x28 float values (0=background, 1=ink) ──
-        self.grid = np.zeros((GRID, GRID), dtype=np.float32)
+def lerp_color(v):
+    b = int(v * 255)
+    return (b, min(255, b + 30), int(b * 0.7))
 
-        self._build_ui()
-        self._bind_events()
-        self._redraw()
+def save_bin(grid):
+    img_data = (grid * 255).astype(np.uint8)
+    img = Image.fromarray(img_data, mode='L')
 
-    # ─────────────────────────────────────────────────────────────────────────
-    def _build_ui(self):
-        # Title
-        title = tk.Label(self.root, text="DRAW A DIGIT",
-                         font=("Courier New", 13, "bold"),
-                         fg="#39ff14", bg="#0d0d0d", pady=8)
-        title.pack()
+    thresh = img.point(lambda p: 255 if p > 25 else 0)
+    bbox = thresh.getbbox()
+    if bbox is None:
+        return False, "Canvas is empty!"
+    img = img.crop(bbox)
 
-        # Canvas frame with glow border
-        frame = tk.Frame(self.root, bg="#39ff14", padx=2, pady=2)
-        frame.pack(padx=20)
+    w, h = img.size
+    margin = int(max(w, h) * 0.25)
+    side   = max(w, h) + 2 * margin
+    square = Image.new('L', (side, side), 0)
+    ox = margin + (side - 2*margin - w) // 2
+    oy = margin + (side - 2*margin - h) // 2
+    square.paste(img, (ox, oy))
 
-        self.canvas = tk.Canvas(frame,
-                                width=CANVAS_PX, height=CANVAS_PX,
-                                bg="#000000", cursor="crosshair",
-                                highlightthickness=0)
-        self.canvas.pack()
+    img28 = square.resize((28, 28), Image.LANCZOS)
+    img28 = img28.filter(ImageFilter.GaussianBlur(radius=0.85))
+    arr   = np.array(img28, dtype=np.float64) / 255.0
 
-        # Brush size slider
-        ctrl = tk.Frame(self.root, bg="#0d0d0d", pady=10)
-        ctrl.pack(fill="x", padx=20)
+    with open(OUTPUT_PATH, 'wb') as f:
+        f.write(struct.pack(f'{784}d', *arr.flatten()))
 
-        tk.Label(ctrl, text="BRUSH", font=("Courier New", 9),
-                 fg="#888", bg="#0d0d0d").pack(side="left")
+    chars = " ·:;+=xX$&#"
+    print(f"\n── 28×28 preview ({OUTPUT_PATH}) ──")
+    for row in range(28):
+        print("".join(chars[min(int(arr[row,c]*10), 10)] for c in range(28)))
 
-        self.brush_var = tk.DoubleVar(value=BRUSH_CELLS)
-        slider = tk.Scale(ctrl, from_=0.5, to=3.0, resolution=0.25,
-                          orient="horizontal", variable=self.brush_var,
-                          bg="#0d0d0d", fg="#39ff14", troughcolor="#1a1a1a",
-                          highlightthickness=0, bd=0, length=180)
-        slider.pack(side="left", padx=8)
+    return True, f"Saved → {OUTPUT_PATH}   |   run: ./mnist predict {OUTPUT_PATH}"
 
-        # Buttons
-        btn_frame = tk.Frame(self.root, bg="#0d0d0d", pady=4)
-        btn_frame.pack()
+def draw_button(surf, rect, label, color):
+    pygame.draw.rect(surf, color, rect, border_radius=6)
+    font = pygame.font.SysFont("monospace", 14, bold=True)
+    txt  = font.render(label, True, BTN_TEXT)
+    surf.blit(txt, txt.get_rect(center=rect.center))
 
-        self._btn(btn_frame, "CLEAR",  self._clear,  "#ff3c3c").pack(side="left", padx=6)
-        self._btn(btn_frame, "SAVE → .BIN", self._save, "#39ff14").pack(side="left", padx=6)
+def main():
+    pygame.init()
+    screen = pygame.display.set_mode((WIN_SIZE, WIN_SIZE + PANEL_H))
+    pygame.display.set_caption("Digit Painter → MNIST .bin")
 
-        # Status bar
-        self.status = tk.Label(self.root, text=f"Output: {OUTPUT_PATH}",
-                               font=("Courier New", 8),
-                               fg="#555", bg="#0d0d0d", pady=6)
-        self.status.pack()
+    grid       = np.zeros((GRID, GRID), dtype=np.float32)
+    brush_r    = 1.5
+    drawing    = False
+    status_msg = f"Output: {OUTPUT_PATH}"
+    status_ok  = True
 
-    def _btn(self, parent, text, cmd, color):
-        return tk.Button(parent, text=text, command=cmd,
-                         font=("Courier New", 10, "bold"),
-                         fg="#0d0d0d", bg=color, activebackground=color,
-                         relief="flat", padx=12, pady=6, cursor="hand2")
+    grid_surf = pygame.Surface((WIN_SIZE, WIN_SIZE))
 
-    # ─────────────────────────────────────────────────────────────────────────
-    def _bind_events(self):
-        self.canvas.bind("<B1-Motion>",    self._paint)
-        self.canvas.bind("<ButtonPress-1>", self._paint)
+    btn_clear = pygame.Rect(16,             WIN_SIZE + 20, 110, 40)
+    btn_save  = pygame.Rect(WIN_SIZE - 200, WIN_SIZE + 20, 184, 40)
+    btn_minus = pygame.Rect(WIN_SIZE//2 - 70, WIN_SIZE + 22, 32, 36)
+    btn_plus  = pygame.Rect(WIN_SIZE//2 + 38, WIN_SIZE + 22, 32, 36)
 
-    def _pixel_to_cell(self, px, py):
-        """Convert canvas pixel → (col, row) in MNIST grid."""
-        return px / CANVAS_PX * GRID, py / CANVAS_PX * GRID
-
-    def _paint(self, event):
-        cx, cy = self._pixel_to_cell(event.x, event.y)
-        r = self.brush_var.get()
-
-        # Paint a soft circular brush onto the grid
+    def paint(px, py):
+        cx, cy = px / CELL, py / CELL
+        r = brush_r
         ix0 = max(0, int(cx - r - 1))
         ix1 = min(GRID, int(cx + r + 2))
         iy0 = max(0, int(cy - r - 1))
         iy1 = min(GRID, int(cy + r + 2))
-
         for gy in range(iy0, iy1):
             for gx in range(ix0, ix1):
                 dist = ((gx + 0.5 - cx)**2 + (gy + 0.5 - cy)**2) ** 0.5
-                # soft falloff: 1.0 at centre → 0.0 at radius edge
                 strength = max(0.0, 1.0 - dist / r)
-                self.grid[gy, gx] = min(1.0, self.grid[gy, gx] + strength * 0.6)
+                grid[gy, gx] = min(1.0, grid[gy, gx] + strength * 0.55)
 
-        self._redraw()
-
-    def _redraw(self):
-        self.canvas.delete("all")
+    def redraw_grid():
+        grid_surf.fill(BG)
         for gy in range(GRID):
             for gx in range(GRID):
-                v = self.grid[gy, gx]
+                v = grid[gy, gx]
                 if v < 0.01:
                     continue
-                brightness = int(v * 255)
-                color = f"#{brightness:02x}{min(255, brightness + 40):02x}{int(brightness * 0.2):02x}"
-                x0 = gx * CELL
-                y0 = gy * CELL
-                self.canvas.create_rectangle(x0, y0, x0 + CELL, y0 + CELL,
-                                             fill=color, outline="")
+                pygame.draw.rect(grid_surf, lerp_color(v),
+                                 (gx*CELL, gy*CELL, CELL, CELL))
 
-    def _clear(self):
-        self.grid[:] = 0.0
-        self._redraw()
-        self.status.config(text="Cleared.", fg="#888")
+    font_sm = pygame.font.SysFont("monospace", 12)
 
-    # ─────────────────────────────────────────────────────────────────────────
-    def _save(self):
-        """
-        Apply the same preprocessing MNIST uses, then write 784 doubles.
-        Steps:
-          1. Tight-crop to ink bounding box
-          2. Re-pad to square with ~20% margin  (MNIST centering)
-          3. Gaussian blur  (matches MNIST stroke softness)
-          4. Normalize to [0, 1]
-        """
-        # Build a PIL image from the grid
-        img_data = (self.grid * 255).astype(np.uint8)
-        img = Image.fromarray(img_data, mode='L')
+    running = True
+    while running:
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                running = False
+            elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+                if btn_clear.collidepoint(event.pos):
+                    grid[:] = 0.0
+                    status_msg, status_ok = "Cleared.", True
+                elif btn_save.collidepoint(event.pos):
+                    status_ok, status_msg = save_bin(grid)
+                elif btn_minus.collidepoint(event.pos):
+                    brush_r = max(0.5, round(brush_r - 0.5, 1))
+                elif btn_plus.collidepoint(event.pos):
+                    brush_r = min(4.0, round(brush_r + 0.5, 1))
+                elif event.pos[1] < WIN_SIZE:
+                    drawing = True
+                    paint(*event.pos)
+            elif event.type == pygame.MOUSEBUTTONUP and event.button == 1:
+                drawing = False
+            elif event.type == pygame.MOUSEMOTION:
+                if drawing and event.pos[1] < WIN_SIZE:
+                    paint(*event.pos)
 
-        # 1. Tight crop
-        bin_img = img.point(lambda p: 255 if p > 25 else 0)
-        bbox = bin_img.getbbox()
-        if bbox is None:
-            self.status.config(text="⚠  Canvas is empty — draw something first!", fg="#ff3c3c")
-            return
-        img = img.crop(bbox)
+        redraw_grid()
+        screen.blit(grid_surf, (0, 0))
 
-        # 2. Pad to square with margin
-        w, h = img.size
-        margin = int(max(w, h) * 0.25)
-        side   = max(w, h) + 2 * margin
-        square = Image.new('L', (side, side), 0)
-        ox = margin + (side - 2 * margin - w) // 2
-        oy = margin + (side - 2 * margin - h) // 2
-        square.paste(img, (ox, oy))
+        pygame.draw.rect(screen, PANEL_BG, (0, WIN_SIZE, WIN_SIZE, PANEL_H))
+        pygame.draw.line(screen, (40,40,40), (0, WIN_SIZE), (WIN_SIZE, WIN_SIZE), 1)
 
-        # 3. Resize to 28×28 with high-quality downsampling
-        img28 = square.resize((28, 28), Image.LANCZOS)
+        draw_button(screen, btn_clear, "CLEAR",      BTN_CLEAR)
+        draw_button(screen, btn_save,  "SAVE → .BIN", BTN_SAVE)
+        draw_button(screen, btn_minus, "−", (60,60,60))
+        draw_button(screen, btn_plus,  "+", (60,60,60))
 
-        # 4. Gaussian blur (softens strokes to match MNIST feel)
-        img28 = img28.filter(ImageFilter.GaussianBlur(radius=0.85))
+        blabel = font_sm.render(f"brush: {brush_r:.1f}", True, LABEL_COL)
+        screen.blit(blabel, (WIN_SIZE//2 - blabel.get_width()//2, WIN_SIZE + 62))
 
-        # 5. Normalize
-        arr = np.array(img28, dtype=np.float64) / 255.0
+        stxt = font_sm.render(status_msg, True, GREEN if status_ok else (255,80,80))
+        screen.blit(stxt, (16, WIN_SIZE + PANEL_H - 18))
 
-        # 6. Write binary
-        flat = arr.flatten()
-        with open(OUTPUT_PATH, 'wb') as f:
-            f.write(struct.pack(f'{len(flat)}d', *flat))
+        pygame.display.flip()
+        pygame.time.Clock().tick(60)
 
-        # ASCII preview in terminal
-        print("\n── 28×28 preview ──")
-        chars = " ·:;+=xX$&#"
-        for row in range(28):
-            print("".join(chars[min(int(arr[row, col] * 10), 10)] for col in range(28)))
+    pygame.quit()
 
-        self.status.config(
-            text=f"✓  Saved to {OUTPUT_PATH}  —  run: ./mnist predict {OUTPUT_PATH}",
-            fg="#39ff14")
-
-
-# ─────────────────────────────────────────────────────────────────────────────
 if __name__ == "__main__":
-    root = tk.Tk()
-    app  = DigitPainter(root)
-    root.mainloop()
+    main()
