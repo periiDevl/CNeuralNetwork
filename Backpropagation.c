@@ -110,6 +110,5 @@ double learnFromSample(NeuralNetwork* network, double* inputs, double* expectedO
     double cost = calculateNetworkCost(network, expectedOutputs);
     computeAllNetworkGradients(network, expectedOutputs);
     updateNetworkWeights(network, learningRate);
-    printf("\nCost: %f", cost);
     return cost;
 }
