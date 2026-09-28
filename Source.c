@@ -80,7 +80,6 @@ int main(int argc, char* argv[]) {
 
     if (strcmp(argv[1], "train") == 0) {
         double current_lr = LEARNING_RATE;
-        // ---- Load MNIST ----
         int trainCount, testCount, labelCount, testLabelCount;
         printf("Loading MNIST...\n");
 
