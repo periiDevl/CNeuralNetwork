@@ -78,7 +78,6 @@ int main(int argc, char* argv[]) {
         return 1;
     }
 
-    // ================== TRAIN MODE ==================
     if (strcmp(argv[1], "train") == 0) {
         double current_lr = LEARNING_RATE;
         // ---- Load MNIST ----
@@ -102,8 +101,7 @@ int main(int argc, char* argv[]) {
         network.layers = NULL;
         network.numLayers = 0;
         createNeuralNetwork(&network, 4);
-        
-        // Ensure to link layers before doing parameter sizing
+       
         linkLayers(&network);
 
         setNeuronsSize(&network.layers[0], 784);
@@ -132,7 +130,6 @@ int main(int argc, char* argv[]) {
                 }
             }
 
-            //Test accuracy
             int correct = 0;
             for (int i = 0; i < testCount; i++) {
                 for (size_t n = 0; n < network.layers[0].numNeurons; n++)
@@ -148,11 +145,9 @@ int main(int argc, char* argv[]) {
                 printf("Learning rate decayed to: %.5f\n", current_lr);
             }
         }
-
-        // --- NEW: Save the network after training! ---
         saveNetwork(&network, "model.bin");
 
-        // ---- Cleanup ----
+
         freeMNISTImages(trainImages, trainCount);
         freeMNISTImages(testImages, testCount);
         freeMNISTLabels(trainLabels);
@@ -172,7 +167,7 @@ int main(int argc, char* argv[]) {
         network.numLayers = 0;
 
         printf("Loading network from model.bin...\n");
-        loadNetwork(&network, "model.bin"); // Loads architecture and weights
+        loadNetwork(&network, "model.bin");
 
         double inputImage[784];
         if (!loadProcessedImage(argv[2], inputImage, 784)) {
@@ -181,7 +176,6 @@ int main(int argc, char* argv[]) {
         }
 
         printf("Feeding image into network...\n");
-        // Inject image into the input layer
         for (size_t i = 0; i < 784; i++) {
             network.layers[0].neurons[i].val = inputImage[i];
         }
